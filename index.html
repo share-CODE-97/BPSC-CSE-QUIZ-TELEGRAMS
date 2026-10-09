@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Offline CSE exam preparation — practice, exam, review. Works without internet.">
+<meta property="og:title" content="CSE Quiz Hub">
+<meta property="og:description" content="Offline CSE exam preparation — practice, exam, review.">
+<meta property="og:image" content="icons/icon-512.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0f1115">
+
+<title>CSE Quiz Hub</title>
+
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem('cse_quiz_theme');
+      if (t !== 'light' && t !== 'dark' && t !== 'system') {
+        t = 'system';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'system');
+    }
+  })();
+</script>
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" type="image/png" href="icons/favicon-96x96.png" sizes="96x96" />
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+  <!-- ============ HEADER ============ -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-mark">CS</span>
+        <span class="brand-text">Quiz Hub</span>
+      </div>
+      <div class="header-actions">
+        <button id="settings-btn" class="theme-toggle" type="button"
+                aria-label="Settings" title="Settings">⚙️</button>
+        <button id="theme-toggle" class="theme-toggle" type="button"></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ MAIN APP AREA ============ -->
+  <main id="app" class="app-main">
+    <div class="loading">Starting…</div>
+  </main>
+
+  <!-- ==========================================================
+       SCRIPT LOAD ORDER IS IMPORTANT — DO NOT REORDER
+       1. Core utilities
+       2. Question manager (defines registerQuestionBank)
+       3. Question-bank manifest (list of files to load)
+       4. App bootstrap (must come last)
+       ========================================================== -->
+  <!-- Core scripts (order matters) -->
+  <script src="js/utils.js"></script>
+  <script src="js/keyboard.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/question-manager.js"></script>
+
+  <!-- User data (bookmarks, wrong questions, history) -->
+  <script src="js/bookmarks.js"></script>
+  <script src="js/history.js"></script>
+  <script src="js/question-stats.js"></script>
+
+  
+  <!-- Question banks — one file per subject. Order here does not matter; each file registers itself. -->
+  <script src="questions/basic-computer.js"></script>
+  <script src="questions/digital-logic.js"></script>
+  <script src="questions/computer-organization.js"></script>
+  <script src="questions/iot.js"></script>
+  <script src="questions/artificial-intelligence.js"></script>
+  <script src="questions/data-structure.js"></script>
+  <script src="questions/e-commerce.js"></script>
+  <script src="questions/multimedia.js"></script>
+  <script src="questions/software-engineering.js"></script>
+  <script src="questions/operating-system.js"></script>
+  <script src="questions/dbms.js"></script>
+  <script src="questions/computer-network.js"></script>
+  <script src="questions/web-technology.js"></script>
+  <script src="questions/theory-of-computation.js"></script>
+  <script src="questions/oop.js"></script>
+  <script src="questions/computer-security.js"></script>
+
+
+
+
+  <!-- Feature modules -->
+  <script src="js/study.js"></script>
+  <script src="js/weak.js"></script>
+  <script src="js/mixed.js"></script>
+  <script src="js/performance.js"></script>
+  <script src="js/practice.js"></script>
+  <script src="js/exam.js"></script>
+
+  <!-- App bootstrap (must be last) -->
+  <script src="js/app.js"></script>
+
+</body>
+</html>
