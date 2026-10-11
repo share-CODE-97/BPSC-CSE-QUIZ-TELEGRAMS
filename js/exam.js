@@ -6,6 +6,7 @@ const Exam = (() => {
     questions: [],
     answers: [],
     flagged: [],
+    visited: [],
     current: 0,
     config: null,
     submitted: false,
@@ -28,6 +29,7 @@ const Exam = (() => {
         questions: state.questions,
         answers: state.answers,
         flagged: state.flagged,
+        visited: state.visited,
         current: state.current,
         config: state.config,
         startTime: state.startTime,
@@ -61,6 +63,7 @@ const Exam = (() => {
     state.questions = s.questions;
     state.answers   = s.answers;
     state.flagged   = s.flagged;
+    state.visited   = Array.isArray(s.visited) ? s.visited : new Array(s.questions.length).fill(false);
     state.current   = s.current;
     state.config    = s.config;
     state.submitted = false;
@@ -129,6 +132,16 @@ const Exam = (() => {
             <input type="number" id="ex-count" min="1" value="${Settings.getPrefs().defaultCount}">
             <small class="text-muted" id="ex-available"></small>
           </div>
+
+          ${SRS.isEnabled() ? `
+          <div class="form-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="ex-due-only">
+              <span>Only questions due for review (SRS) — <span id="ex-due-count">${SRS.getDueCount()}</span> due</span>
+            </label>
+          </div>` : ''}
+
+
           <div class="form-row">
             <label class="checkbox-label">
               <input type="checkbox" id="ex-timer-enabled" ${Settings.getPrefs().defaultTimerEnabled ? 'checked' : ''}>
@@ -211,8 +224,18 @@ const Exam = (() => {
     const minutes = parseInt(document.getElementById('ex-minutes').value, 10);
     const positive = parseFloat(document.getElementById('ex-positive').value);
     const negative = parseFloat(document.getElementById('ex-negative').value);
+    const dueOnlyEl = document.getElementById('ex-due-only');
+    const dueOnly = dueOnlyEl ? dueOnlyEl.checked : false;
 
-    const pool = getPool(subject, subtopic);
+    let pool = getPool(subject, subtopic);
+    if (dueOnly) {
+      pool = pool.filter(q => SRS.isDue(q.id));
+      if (pool.length === 0) {
+        alert('No SRS-due questions in this selection. Try a wider subject or uncheck "Due only".');
+        return;
+      }
+    }
+
     if (pool.length === 0) { alert('No questions available for this selection.'); return; }
 
     let count = requested;
@@ -252,6 +275,7 @@ const Exam = (() => {
     }));
     state.answers = new Array(state.questions.length).fill(null);
     state.flagged = new Array(state.questions.length).fill(false);
+    state.visited = new Array(state.questions.length).fill(false);
     state.current = 0;
     state.config = config;
     state.submitted = false;
@@ -321,14 +345,23 @@ const Exam = (() => {
 
     /* ---- helpers shared by clicks and keyboard ---- */
     function goPrev() {
-      if (state.current > 0) { state.current--; renderQuiz(); }
+      if (state.current > 0) {
+        state.visited[state.current] = true;
+        state.current--;
+        renderQuiz();
+      }
     }
     function goNext() {
-      if (state.current < total - 1) { state.current++; renderQuiz(); }
+      if (state.current < total - 1) {
+        state.visited[state.current] = true;
+        state.current++;
+        renderQuiz();
+      }
     }
     function pickOption(idx) {
       if (idx < 0 || idx >= q.options.length) return;
       state.answers[state.current] = q.options[idx];
+      state.visited[state.current] = true;
       renderQuiz();
     }
     function clearSelection() {
@@ -356,9 +389,16 @@ const Exam = (() => {
 
     const navButtons = state.questions.map((_, i) => {
       let cls = 'nav-btn';
-      if (state.flagged[i]) cls += ' nav-flagged';
-      else if (state.answers[i] !== null) cls += ' nav-answered';
-      else cls += ' nav-unanswered';
+      const answered = state.answers[i] !== null;
+      const flagged  = state.flagged[i];
+      const visited  = state.visited[i];
+
+      if (flagged && answered)      cls += ' nav-flagged-answered';
+      else if (flagged)             cls += ' nav-flagged';
+      else if (answered)            cls += ' nav-answered';
+      else if (visited)             cls += ' nav-skipped';
+      else                          cls += ' nav-unvisited';
+
       if (i === state.current) cls += ' nav-current';
       return `<button class="${cls}" type="button" data-jump="${i}">${i + 1}</button>`;
     }).join('');
@@ -389,6 +429,7 @@ const Exam = (() => {
           <span class="quiz-tag">${esc(q.subtopic)}</span>
           <span class="quiz-tag">Question ${state.current + 1} of ${total}</span>
           <span class="quiz-tag quiz-tag-id" title="Question ID">${esc(q.id)}</span>
+          ${SRS.badgeFor(q.id) ? `<span class="quiz-tag quiz-tag-srs">${SRS.badgeFor(q.id)}</span>` : ''}
           <button class="btn-icon btn-icon-inline ${isBookmarked ? 'active' : ''}"
                   id="ex-bookmark" type="button"
                   title="Bookmark this question"
@@ -413,8 +454,10 @@ const Exam = (() => {
           <h3 class="section-title">Question Navigator</h3>
           <div class="navigator-legend">
             <span><span class="nav-dot nav-answered"></span> Answered</span>
-            <span><span class="nav-dot nav-unanswered"></span> Unanswered</span>
-            <span><span class="nav-dot nav-flagged"></span> Flagged</span>
+            <span><span class="nav-dot nav-skipped"></span> Skipped</span>
+            <span><span class="nav-dot nav-unvisited"></span> Not opened</span>
+            <span><span class="nav-dot nav-flagged"></span> Marked</span>
+            <span><span class="nav-dot nav-flagged-answered"></span> Marked &amp; answered</span>
           </div>
           <div class="navigator-grid">${navButtons}</div>
         </div>
@@ -438,11 +481,54 @@ const Exam = (() => {
       }
     });
     document.getElementById('ex-submit').addEventListener('click', () => {
-      const unanswered = state.answers.filter(a => a === null).length;
-      const msg = unanswered > 0
-        ? `${unanswered} question(s) unanswered. Submit anyway?`
-        : 'Submit exam?';
-      if (confirm(msg)) submitExam(false);
+      const total = state.questions.length;
+      const attempted = state.answers.filter(a => a !== null).length;
+      const unattempted = total - attempted;
+      const flaggedCount = state.flagged.filter(Boolean).length;
+
+      Modal.show({
+        title: '📝 Submit Exam?',
+        message: `
+          <p style="margin-bottom: 0.9rem;">Here's your progress:</p>
+          <div class="submit-stats">
+            <div class="submit-stat">
+              <span class="submit-stat-value">${total}</span>
+              <span class="submit-stat-label">Total</span>
+            </div>
+            <div class="submit-stat submit-stat-attempted">
+              <span class="submit-stat-value">${attempted}</span>
+              <span class="submit-stat-label">Attempted</span>
+            </div>
+            <div class="submit-stat ${unattempted > 0 ? 'submit-stat-warn' : ''}">
+              <span class="submit-stat-value">${unattempted}</span>
+              <span class="submit-stat-label">Unattempted</span>
+            </div>
+            <div class="submit-stat ${flaggedCount > 0 ? 'submit-stat-flag' : ''}">
+              <span class="submit-stat-value">${flaggedCount}</span>
+              <span class="submit-stat-label">Flagged</span>
+            </div>
+          </div>
+          ${unattempted > 0
+            ? `<p style="margin-top: 0.9rem; color: var(--flagged); font-size: 0.85rem;">
+                 ⚠️ ${unattempted} question${unattempted === 1 ? '' : 's'} still unanswered.
+               </p>`
+            : `<p style="margin-top: 0.9rem; color: var(--correct); font-size: 0.85rem;">
+                 ✓ All questions attempted.
+               </p>`}
+          ${flaggedCount > 0
+            ? `<p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.35rem;">
+                 🚩 ${flaggedCount} question${flaggedCount === 1 ? '' : 's'} marked for review.
+               </p>`
+            : ''}
+          <p style="margin-top: 0.9rem; color: var(--text-muted); font-size: 0.85rem;">
+            You won't be able to change answers after submitting.
+          </p>
+        `,
+        confirmText: 'Submit Exam',
+        cancelText: 'Keep Working',
+        danger: false,
+        onConfirm: () => submitExam(false)
+      });
     });
     document.getElementById('ex-prev').addEventListener('click', goPrev);
     document.getElementById('ex-next').addEventListener('click', goNext);
@@ -457,6 +543,7 @@ const Exam = (() => {
     });
     document.querySelectorAll('.nav-btn').forEach(btn => {
       btn.addEventListener('click', () => {
+        state.visited[state.current] = true;
         state.current = parseInt(btn.dataset.jump, 10);
         renderQuiz();
       });
@@ -520,7 +607,7 @@ Keyboard.bind({
   state.submitted = true;
     state.timeUsed = Math.floor((Date.now() - state.startTime) / 1000);
 
-    /* Record wrong questions + stats */
+    /* Record wrong questions + stats + SRS */
     state.questions.forEach((q, i) => {
       const ans = state.answers[i];
       if (ans === null) return; // unattempted: skip
@@ -528,6 +615,7 @@ Keyboard.bind({
       if (isCorrect) WrongQuestions.markCorrect(q.id);
       else WrongQuestions.markWrong(q.id);
       QuestionStats.recordAttempt(q.id, isCorrect);
+      SRS.recordReview(q.id, isCorrect);
     });
 
     if (!state.historySaved) {

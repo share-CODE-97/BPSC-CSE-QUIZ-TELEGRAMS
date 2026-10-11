@@ -54,12 +54,23 @@ const App = {
 
 
 
+  _currentView: null,
+
   navigate(view, params) {
     const app = document.getElementById('app');
     if (!app) return;
 
+    const previous = App._currentView || null;
+    App._currentView = view;
+
     Keyboard.unbind();   /* clear any keybindings from the previous screen */
-    if (window.Exam && Exam.onExit) Exam.onExit();
+
+    /* Only clean up the exam when actually leaving its screens,
+       not when arriving at them. */
+    if (previous && previous.startsWith('exam') && !view.startsWith('exam')) {
+      if (window.Exam && Exam.onExit) Exam.onExit();
+    }
+
     app.innerHTML = '';
 
     switch (view) {
@@ -80,6 +91,10 @@ const App = {
       case 'performance-subject':  Performance.renderSubject(params);    break;
 
       case 'mixed-setup':          Mixed.renderSetup();                  break;
+      case 'review-quiz':          Review.renderQuiz();                  break;
+      case 'review-result':        Review.renderResult();                break;
+      case 'ai-browser':           AIBrowser.renderList();               break;
+      case 'ai-browser-view':      AIBrowser.renderDetail(params);       break;
 
       case 'exam-setup':      Exam.renderSetup(params);     break;
       case 'exam-quiz':       Exam.renderQuiz();            break;
@@ -160,14 +175,19 @@ const App = {
     const recentHistory = History.getRecent(5);
 
     const streak = App.getStreak();
+    const srsEnabled = SRS.isEnabled();
+    const srsDue = srsEnabled ? SRS.getDueCount() : 0;
 
 
     const hasExamResume = window.Exam && Exam.hasSavedState && Exam.hasSavedState();
     const hasPracticeResume = window.Practice && Practice.hasSavedState && Practice.hasSavedState();
     const hasStudyResume = window.Study && Study.hasSavedState && Study.hasSavedState();
+    const hasReviewResume = window.Review && Review.hasSavedState && Review.hasSavedState();
     let resumeBanner = '';
-    if (hasExamResume || hasPracticeResume || hasStudyResume) {
-      const kind = hasExamResume ? 'exam' : (hasPracticeResume ? 'practice' : 'study');
+    if (hasExamResume || hasPracticeResume || hasStudyResume || hasReviewResume) {
+      const kind = hasExamResume ? 'exam'
+                 : (hasPracticeResume ? 'practice'
+                 : (hasStudyResume ? 'study' : 'review'));
       resumeBanner = `
         <div class="resume-banner">
           <div>
@@ -263,34 +283,43 @@ const App = {
 
         <h2 class="section-title">Question Practice</h2>
         <div class="practice-grid">
-          <div class="practice-card clickable" id="card-all" role="button" tabindex="0">
-            <h3>All Questions</h3>
+          <div class="practice-card clickable" data-card="all" id="card-all" role="button" tabindex="0">
+            <h3>📚 All Questions</h3>
             <p>Practice the entire question bank.</p>
             <button class="btn btn-secondary" type="button">Start</button>
           </div>
-          <div class="practice-card clickable ${wrongCount === 0 ? 'disabled' : ''}"
+          <div class="practice-card clickable ${wrongCount === 0 ? 'disabled' : ''}" data-card="weak"
                id="card-wrong" role="button" tabindex="0">
-            <h3>Weak Questions <span class="count-pill">${wrongCount}</span></h3>
+            <h3>❌ Weak Questions <span class="count-pill">${wrongCount}</span></h3>
             <p>Review questions you've struggled with.</p>
             <button class="btn btn-secondary" type="button" ${wrongCount === 0 ? 'disabled' : ''}>
               ${wrongCount === 0 ? 'None yet' : 'View'}
             </button>
             ${wrongCount > 0 ? `<button class="btn btn-link btn-sm" id="clear-wrong" type="button">Clear</button>` : ''}
           </div>
-          <div class="practice-card clickable ${bookmarkCount === 0 ? 'disabled' : ''}"
+          <div class="practice-card clickable ${bookmarkCount === 0 ? 'disabled' : ''}" data-card="bookmarks"
                id="card-bookmarks" role="button" tabindex="0">
-            <h3>Bookmarked <span class="count-pill">${bookmarkCount}</span></h3>
+            <h3>⭐ Bookmarked <span class="count-pill">${bookmarkCount}</span></h3>
             <p>Practice your saved questions.</p>
             <button class="btn btn-secondary" type="button" ${bookmarkCount === 0 ? 'disabled' : ''}>
               ${bookmarkCount === 0 ? 'None yet' : 'Practice'}
             </button>
             ${bookmarkCount > 0 ? `<button class="btn btn-link btn-sm" id="clear-bookmarks" type="button">Clear</button>` : ''}
           </div>
-
-          <div class="practice-card clickable" id="card-performance" role="button" tabindex="0">
+          <div class="practice-card clickable" data-card="performance" id="card-performance" role="button" tabindex="0">
             <h3>📊 Performance</h3>
             <p>See your accuracy by subject and subtopic.</p>
             <button class="btn btn-secondary" type="button">View</button>
+          </div>
+          <div class="practice-card clickable ${!srsEnabled || srsDue === 0 ? 'disabled' : ''}" data-card="srs"
+               id="card-srs" role="button" tabindex="0">
+            <h3>🧠 Due for Review <span class="count-pill">${srsDue}</span></h3>
+            <p>${srsEnabled
+              ? (srsDue === 0 ? 'Nothing due right now. Come back later!' : 'Questions scheduled by spaced repetition.')
+              : 'Enable SRS in Settings to use this.'}</p>
+            <button class="btn btn-primary btn-sm" type="button" ${!srsEnabled || srsDue === 0 ? 'disabled' : ''}>
+              ${!srsEnabled ? 'Disabled' : (srsDue === 0 ? 'All caught up' : 'Start Review')}
+            </button>
           </div>
         </div>
 
@@ -305,7 +334,8 @@ const App = {
         const kind = resumeGo.dataset.kind;
         if (kind === 'exam') Exam.resumeSaved();
         else if (kind === 'practice') Practice.resumeSaved();
-        else Study.resumeSaved();
+        else if (kind === 'study') Study.resumeSaved();
+        else Review.resumeSaved();
       });
     }
     const resumeDismiss = document.getElementById('resume-dismiss');
@@ -317,6 +347,9 @@ const App = {
         }
         if (hasStudyResume) {
           try { sessionStorage.removeItem('cse_quiz_active_study'); } catch (e) {}
+        }
+        if (hasReviewResume) {
+          try { sessionStorage.removeItem('cse_quiz_active_review'); } catch (e) {}
         }
         App.navigate('dashboard');
       });
@@ -339,6 +372,10 @@ const App = {
 
     document.getElementById('card-all').addEventListener('click', () => App.practiceAll());
     document.getElementById('card-performance').addEventListener('click', () => App.navigate('performance'));
+    document.getElementById('card-srs').addEventListener('click', () => {
+      if (!srsEnabled || srsDue === 0) return;
+      Review.start();
+    });
     document.getElementById('card-wrong').addEventListener('click', (e) => {
       if (e.target.id === 'clear-wrong') return;
       if (wrongCount === 0) return;

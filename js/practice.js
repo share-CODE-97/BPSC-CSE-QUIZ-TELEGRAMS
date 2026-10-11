@@ -93,6 +93,15 @@ const Practice = (() => {
             <input type="number" id="ps-count" min="1" value="${Settings.getPrefs().defaultCount}">
             <small class="text-muted" id="ps-available"></small>
           </div>
+
+          ${SRS.isEnabled() ? `
+          <div class="form-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="ps-due-only">
+              <span>Only questions due for review (SRS) — <span id="ps-due-count">${SRS.getDueCount()}</span> due</span>
+            </label>
+          </div>` : ''}
+
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" id="ps-cancel">Cancel</button>
             <button type="submit" class="btn btn-primary">Start Practice</button>
@@ -149,7 +158,17 @@ const Practice = (() => {
     const subject = document.getElementById('ps-subject').value;
     const subtopic = document.getElementById('ps-subtopic').value;
     const requested = parseInt(document.getElementById('ps-count').value, 10);
-    const pool = getPool(subject, subtopic);
+    const dueOnlyEl = document.getElementById('ps-due-only');
+    const dueOnly = dueOnlyEl ? dueOnlyEl.checked : false;
+
+    let pool = getPool(subject, subtopic);
+    if (dueOnly) {
+      pool = pool.filter(q => SRS.isDue(q.id));
+      if (pool.length === 0) {
+        alert('No SRS-due questions in this selection. Try a wider subject or uncheck "Due only".');
+        return;
+      }
+    }
 
     if (pool.length === 0) { alert('No questions available for this selection.'); return; }
     let count = requested;
@@ -236,6 +255,7 @@ const Practice = (() => {
       if (isCorrect) WrongQuestions.markCorrect(q.id);
       else WrongQuestions.markWrong(q.id);
       QuestionStats.recordAttempt(q.id, isCorrect);
+      SRS.recordReview(q.id, isCorrect);
       renderQuiz();
     }
     function toggleBookmark() {
@@ -295,6 +315,7 @@ const Practice = (() => {
           <span class="quiz-tag">${esc(q.subject)}</span>
           <span class="quiz-tag">${esc(q.subtopic)}</span>
           <span class="quiz-tag quiz-tag-id" title="Question ID">${esc(q.id)}</span>
+          ${SRS.badgeFor(q.id) ? `<span class="quiz-tag quiz-tag-srs">${SRS.badgeFor(q.id)}</span>` : ''}
         </div>
         <div class="question-card">
           <h2 class="question-text">${esc(q.question)}</h2>

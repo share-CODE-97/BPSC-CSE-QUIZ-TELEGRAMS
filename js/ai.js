@@ -88,6 +88,17 @@ const GEMINI_MODELS = [
     Storage.set(CACHE_KEY, cache);
   }
   function getCacheCount() { return Object.keys(getCache()).length; }
+  function getAllCached() { return getCache(); }
+  function removeCached(id) {
+    if (!id) return false;
+    const cache = getCache();
+    if (!cache[id]) return false;
+    delete cache[id];
+    Storage.set(CACHE_KEY, cache);
+    return true;
+  }
+
+
   function clearCache()    { Storage.remove(CACHE_KEY); }
 
   /* ============ ERRORS ============ */
@@ -541,12 +552,14 @@ const GEMINI_MODELS = [
     getSettings, saveSettings,
     getApiKey, setApiKey, clearApiKey, hasApiKey, maskKey,
     testKey,
-    getCached, getCacheCount, clearCache,
+    getCached, getAllCached, removeCached, getCacheCount, clearCache,
     explainQuestion,
     renderMarkdown,
     friendlyError,
     attachPanel
   };
+
+
 })();
 
 window.AI = AI;

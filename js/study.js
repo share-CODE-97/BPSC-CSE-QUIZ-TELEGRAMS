@@ -249,6 +249,7 @@ const Study = (() => {
           <span class="quiz-tag">${esc(q.subject)}</span>
           <span class="quiz-tag">${esc(q.subtopic)}</span>
           <span class="quiz-tag quiz-tag-id" title="Question ID">${esc(q.id)}</span>
+          ${SRS.badgeFor(q.id) ? `<span class="quiz-tag quiz-tag-srs">${SRS.badgeFor(q.id)}</span>` : ''}
         </div>
         <div class="question-card">
           <h2 class="question-text">${esc(q.question)}</h2>
