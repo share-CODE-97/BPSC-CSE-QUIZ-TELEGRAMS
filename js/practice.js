@@ -363,14 +363,22 @@ const Practice = (() => {
 
     /* Swipe left/right on the question card to navigate */
     let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
     const qCard = document.querySelector('.question-card');
     if (qCard) {
       qCard.addEventListener('touchstart', (e) => {
         touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+        touchStartTime = Date.now();
       }, { passive: true });
       qCard.addEventListener('touchend', (e) => {
         const dx = e.changedTouches[0].screenX - touchStartX;
-        if (Math.abs(dx) < 60) return;
+        const dy = e.changedTouches[0].screenY - touchStartY;
+        const dt = Date.now() - touchStartTime;
+        if (dt > 600) return;                              /* slow drag = scroll */
+        if (Math.abs(dx) < 80) return;                     /* too short */
+        if (Math.abs(dy) > Math.abs(dx) * 0.5) return;     /* not horizontal enough */
         if (dx < 0) goNext();
         else goPrev();
       }, { passive: true });
