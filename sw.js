@@ -45,6 +45,7 @@ const ASSETS = [
   './questions/theory-of-computation.js',
   './questions/web-technology.js',
 
+  './icons/favicon-96x96.png',
   './icons/icon-192.png', 
   './icons/icon-512.png'
 ];

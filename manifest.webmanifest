@@ -1,6 +1,6 @@
 {
   "name": "CSE Quiz Hub",
-  "short_name": "Quiz Hub",
+  "short_name": "CSE Quiz",
   "description": "Offline CSE exam preparation",
   "start_url": "./index.html",
   "scope": "./",
