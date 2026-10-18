@@ -1,4 +1,4 @@
-const CACHE = 'quiz-hub-v9';
+const CACHE = 'quiz-hub-v8';
 const ASSETS = [
   './', 
   './index.html', 
@@ -52,7 +52,14 @@ const ASSETS = [
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
-  self.skipWaiting();
+  // Removed self.skipWaiting() so it waits for user to tap "Reload"
+});
+
+// Listen for the "SKIP_WAITING" message from app.js
+self.addEventListener('message', event => {
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', e => {
