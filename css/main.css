@@ -2857,7 +2857,7 @@ body {
    ============================================================ */
 .update-toast {
   position: fixed;
-  bottom: 1.25rem;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom));
   left: 50%;
   bottom: calc(1.25rem + env(safe-area-inset-bottom));
   background: var(--surface);
