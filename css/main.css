@@ -2859,7 +2859,7 @@ body {
   position: fixed;
   bottom: 1.25rem;
   left: 50%;
-  transform: translateX(-50%) translateY(150%);
+  bottom: calc(1.25rem + env(safe-area-inset-bottom));
   background: var(--surface);
   border: 1px solid var(--accent);
   border-left-width: 4px;
