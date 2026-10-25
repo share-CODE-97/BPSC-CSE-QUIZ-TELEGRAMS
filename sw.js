@@ -1,4 +1,4 @@
-const CACHE = 'quiz-hub-v10';
+const CACHE = 'quiz-hub-v12';
 const ASSETS = [
   './', 
   './index.html', 
@@ -44,6 +44,7 @@ const ASSETS = [
   './questions/software-engineering.js',
   './questions/theory-of-computation.js',
   './questions/web-technology.js',
+  './questions/ssc_imd_sa.js',
 
   './icons/favicon-96x96.png',
   './icons/icon-192.png', 
@@ -52,15 +53,9 @@ const ASSETS = [
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
-  // Removed self.skipWaiting() so it waits for user to tap "Reload"
+  self.skipWaiting(); // Force immediate activation
 });
 
-// Listen for the "SKIP_WAITING" message from app.js
-self.addEventListener('message', event => {
-  if (event.data === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
 
 self.addEventListener('activate', e => {
   e.waitUntil(

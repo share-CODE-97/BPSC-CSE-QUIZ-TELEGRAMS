@@ -10,64 +10,12 @@ const App = {
     this.navigate('dashboard');
   },
 
-  /* Register the service worker (enables offline + Android install) */
   registerServiceWorker() {
-    if (!('serviceWorker' in navigator)) return;
-
-    let refreshing = false;
-    // When the new service worker takes over, reload the page
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
-    });
-
-    navigator.serviceWorker.register('./sw.js').then(reg => {
-      // If a waiting worker exists (update downloaded but not activated)
-      if (reg.waiting) this.showUpdateToast(reg);
-
-      // Listen for future updates
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        if (!newWorker) return;
-        newWorker.addEventListener('statechange', () => {
-          // If it's installed and we already have an active worker, an update is ready
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            this.showUpdateToast(reg);
-          }
-        });
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(err => {
+        console.warn('Service worker registration failed:', err);
       });
-    }).catch(err => {
-      console.warn('Service worker registration failed:', err);
-    });
-  },
-
-  showUpdateToast(reg) {
-    const toast = document.getElementById('update-toast');
-    if (!toast) return;
-    
-    // Show it
-    toast.classList.add('visible');
-
-    const reloadBtn = document.getElementById('update-reload-btn');
-    const dismissBtn = document.getElementById('update-dismiss-btn');
-
-    // Remove old listeners by cloning (to prevent double-binding)
-    const newReload = reloadBtn.cloneNode(true);
-    const newDismiss = dismissBtn.cloneNode(true);
-    reloadBtn.parentNode.replaceChild(newReload, reloadBtn);
-    dismissBtn.parentNode.replaceChild(newDismiss, dismissBtn);
-
-    newReload.addEventListener('click', () => {
-      newReload.textContent = 'Reloading…';
-      newReload.disabled = true;
-      // Tell the waiting service worker to take over
-      if (reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
-    });
-
-    newDismiss.addEventListener('click', () => {
-      toast.classList.remove('visible');
-    });
+    }
   },
 
   // ...rest unchanged
