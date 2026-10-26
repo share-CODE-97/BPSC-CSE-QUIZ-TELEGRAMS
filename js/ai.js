@@ -423,11 +423,15 @@ const GEMINI_MODELS = [
       btn.disabled = true;
       btn.innerHTML = '<span aria-hidden="true">🤖</span> Thinking…';
       panel.hidden = false;
-      panel.innerHTML = `<div class="ai-loading">🔄 Generating explanation…</div>`;
+      
+      const stopLoading = showLoadingSequence(panel);
+      
       try {
         const result = await explainQuestion(q);
+        stopLoading();
         renderSuccess(container, q, result);
       } catch (e) {
+        stopLoading();
         renderError(container, q, e);
       }
     });
@@ -461,11 +465,18 @@ const GEMINI_MODELS = [
       regen.addEventListener('click', async () => {
         regen.disabled = true;
         regen.textContent = '🔄 Regenerating…';
-        if (body) body.innerHTML = `<div class="ai-loading">🔄 Regenerating…</div>`;
+        
+        let stopLoading = null;
+        if (body) {
+          stopLoading = showLoadingSequence(body);
+        }
+
         try {
           const result = await explainQuestion(q, { forceNew: true });
+          if (stopLoading) stopLoading();
           renderSuccess(container, q, result);
         } catch (e) {
+          if (stopLoading) stopLoading();
           renderError(container, q, e, true);
         }
       });
@@ -484,6 +495,39 @@ const GEMINI_MODELS = [
       });
     }
   }
+
+  function showLoadingSequence(container) {
+    const messages = [
+      "🔍 Analyzing question...",
+      "🤖 Contacting AI provider...",
+      "✍️ Generating explanation..."
+    ];
+    let step = 0;
+
+    container.innerHTML = `
+      <div class="ai-typing-loader">
+        <div class="ai-typing-dots"><span></span><span></span><span></span></div>
+        <span id="ai-loading-text">${messages[0]}</span>
+      </div>`;
+
+    const textEl = container.querySelector('#ai-loading-text');
+
+    const interval = setInterval(() => {
+      step++;
+      if (step < messages.length) {
+        if (textEl) textEl.textContent = messages[step];
+      } else {
+        clearInterval(interval); // Stop at the final message
+      }
+    }, 2500); // Changes text every 2.5 seconds
+
+    // Return a cleanup function
+    return () => {
+      clearInterval(interval);
+    };
+  }
+
+
 
   function renderError(container, q, err, keepPanel = false) {
     const msg = friendlyError(err && err.kind ? err.kind : 'server');

@@ -959,14 +959,14 @@ options: ["read/write head", "arms", "tracks", "motors"],
 answer: "tracks",
 explanation: "The number of cylinders equals the number of tracks on a single platter."
 },
-{
-id: "IMD-PYQ-0092",
-subject: "Z - SSC SA IMD PYQ",
-subtopic: "Computer Science & Information Technology",
-question: "Which operator is invalid in the following statement in the C language code? a=4 \ 5- 8+5%7;",
-options: ["+", " \ ", "-", "%"],
-answer: "\*",
-explanation: "The backslash before * is not a valid C operator."
+{ 
+  "id": "IMD-PYQ-0092", 
+  "subject": "Z - SSC SA IMD PYQ", 
+  "subtopic": "Computer Science & Information Technology", 
+  "question": "Which operator is invalid in the following statement in the C language code? a=4 \\ 5- 8+5%7;", 
+  "options": ["+", "\\", "-", "%"], 
+  "answer": "\\", 
+  "explanation": "The backslash character (\\) is not a valid arithmetic operator in the C language; the forward slash (/) is used for division." 
 },
 {
 id: "IMD-PYQ-0093",
@@ -1182,7 +1182,7 @@ explanation: "BCD encodes decimal digits directly in binary form."
 id: "IMD-PYQ-0113",
 subject: "Z - SSC SA IMD PYQ",
 subtopic: "Computer Science & Information Technology",
-question: "What is the output of following C language code? int main() { int x; x=4*4*6; printf(%d,x); return 0; }",
+question: "What is the output of following C language code? int main() { int x; x=4*4%5; printf(%d,x); return 0; }",
 options: ["16", "0.2", "1", "3"],
 answer: "1",
 explanation: "According to the official answer key, the chosen option is 1."
@@ -1414,8 +1414,8 @@ id: "IMD-PYQ-0137",
 subject: "Z - SSC SA IMD PYQ",
 subtopic: "Computer Science & Information Technology",
 question: "A file control block contains information about the file is known as ___ in the Unix file system.",
-options: ["anode", "anode", "anode", "anode"],
-answer: "anode",
+options: ["anode", "onode", "inode", "enode"],
+answer: "inode",
 explanation: "The UNIX file control block is known as an inode; the PDF text renders it as 'anode'."
 },
 {
