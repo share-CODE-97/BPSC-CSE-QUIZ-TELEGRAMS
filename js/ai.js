@@ -448,6 +448,8 @@ const GEMINI_MODELS = [
             ${result.model ? ' · ' + escapeHtml(result.model) : ''}
           </span>
           <div class="ai-panel-actions">
+            <button class="btn btn-secondary btn-sm" type="button" data-ai-action="verify"
+                    title="Run 5 AI checks to verify the official answer">🔍 Verify Answer</button>
             <button class="btn btn-secondary btn-sm" type="button" data-ai-action="regen"
                     title="Generate a new explanation">🔄 Regenerate</button>
             <button class="btn btn-secondary btn-sm" type="button" data-ai-action="copy"
@@ -461,6 +463,42 @@ const GEMINI_MODELS = [
     const copy  = container.querySelector('[data-ai-action="copy"]');
     const body  = container.querySelector('[data-ai-body]');
 
+    const verify = container.querySelector('[data-ai-action="verify"]');
+    if (verify) {
+      verify.addEventListener('click', async () => {
+        verify.disabled = true;
+        const orig = verify.innerHTML;
+        verify.innerHTML = '⏳ Checking 5 sources...';
+        
+        try {
+          const res = await verifyAnswer(q);
+          if (res.isIncorrect) {
+            // Insert warning at the top of the body
+            const body = container.querySelector('[data-ai-body]');
+            const warn = document.createElement('div');
+            warn.className = 'ai-verify-warning';
+            warn.innerHTML = `
+              <div class="ai-verify-title">⚠️ Wait! 3+ AI models flagged this answer.</div>
+              <div class="ai-verify-text">They suggest: <strong>${escapeHtml(res.correction)}</strong></div>
+              <div class="ai-verify-sub">The official answer provided in the question bank may be incorrect. Please double-check with your textbook.</div>
+            `;
+            body.insertBefore(warn, body.firstChild);
+            verify.innerHTML = '⚠️ Flagged';
+          } else {
+            verify.innerHTML = '✅ Verified';
+          }
+        } catch (e) {
+          verify.innerHTML = '❌ Error';
+        }
+        
+        setTimeout(() => {
+          verify.disabled = false;
+          verify.innerHTML = orig;
+        }, 4000);
+      });
+    }
+
+    
     if (regen) {
       regen.addEventListener('click', async () => {
         regen.disabled = true;
@@ -547,6 +585,57 @@ const GEMINI_MODELS = [
   }
 
 
+
+  /* ============ ANSWER VERIFICATION ============ */
+  async function verifyAnswer(q) {
+    const opts = normalizeOptions(q.options);
+    const answer = normalizeAnswer(q.answer, q.options);
+    
+    const prompt = `You are an expert CSE professor. Review this question and its official answer.
+    
+QUESTION: ${q.question}
+OPTIONS:
+${opts.map((o, i) => `${String.fromCharCode(65+i)}. ${o}`).join('\n')}
+OFFICIAL ANSWER: ${answer}
+
+TASK: Is the official answer definitively incorrect? 
+If the official answer is CORRECT, reply EXACTLY with: "CORRECT"
+If the official answer is INCORRECT, reply EXACTLY with: "INCORRECT: [Correct Letter] - [1 sentence reason]"
+Do not include any other text.`;
+
+    // Run 5 checks across different providers
+    const checks = [
+      tryProvider('gemini', GEMINI_MODELS, (m, p) => callGemini(m, p, getApiKey()), prompt),
+      tryProvider('uncloseai', UNCLOSE_MODELS, (m, p) => callUncloseAI(m, p), prompt),
+      tryProvider('gemini', ['gemini-3.8-flash'], (m, p) => callGemini(m, p, getApiKey()), prompt),
+      tryProvider('uncloseai', UNCLOSE_MODELS, (m, p) => callUncloseAI(m, p), prompt),
+      tryProvider('pollinations', ['openai'], (m, p) => callPollinations(m, p), prompt)
+    ];
+
+    // Use Promise.allSettled so one failure doesn't break everything
+    const results = await Promise.allSettled(checks);
+    
+    let incorrectCount = 0;
+    let bestCorrection = null;
+
+    results.forEach(res => {
+      if (res.status === 'fulfilled' && res.value.text) {
+        const text = res.value.text.trim();
+        if (text.startsWith('INCORRECT')) {
+          incorrectCount++;
+          if (!bestCorrection) bestCorrection = text.replace('INCORRECT:', '').trim();
+        }
+      }
+    });
+
+    // If 3 or more models agree the answer is wrong
+    if (incorrectCount >= 3) {
+      return { isIncorrect: true, correction: bestCorrection };
+    }
+    return { isIncorrect: false };
+  }
+
+
   /* ============ MARKDOWN (safe) ============ */
   function escapeHtml(s) {
     if (s === null || s === undefined) return '';
@@ -566,10 +655,37 @@ const GEMINI_MODELS = [
     while (i < lines.length) {
       const trimmed = lines[i].trim();
       if (!trimmed) { i++; continue; }
+
+      // 1. Detect Markdown Tables
+      if (trimmed.startsWith('|') && lines[i + 1] && lines[i + 1].includes('|') && lines[i + 1].includes('-')) {
+        out.push('<div class="ai-table-wrap"><table>');
+        
+        // Headers
+        const headers = trimmed.split('|').map(s => s.trim()).filter(Boolean);
+        out.push('<thead><tr>' + headers.map(h => `<th>${inline(h)}</th>`).join('') + '</tr></thead><tbody>');
+        
+        i += 2; // Skip the header row and the separator row (|---|---|)
+
+        // Rows
+        while (i < lines.length && lines[i].trim().startsWith('|')) {
+          const cols = lines[i].trim().split('|').map(s => s.trim()).filter((s, idx, arr) => {
+            // Filter out the empty strings caused by leading/trailing pipes
+            if (idx === 0 && s === '') return false;
+            if (idx === arr.length - 1 && s === '') return false;
+            return true;
+          });
+          out.push('<tr>' + cols.map(c => `<td>${inline(c)}</td>`).join('') + '</tr>');
+          i++;
+        }
+        out.push('</tbody></table></div>');
+        continue;
+      }
+
       let m;
       if ((m = trimmed.match(/^###\s+(.+)$/))) { out.push(`<h4>${inline(m[1])}</h4>`); i++; continue; }
       if ((m = trimmed.match(/^##\s+(.+)$/)))  { out.push(`<h3>${inline(m[1])}</h3>`); i++; continue; }
       if ((m = trimmed.match(/^#\s+(.+)$/)))   { out.push(`<h3>${inline(m[1])}</h3>`); i++; continue; }
+      
       if (/^[-*]\s+/.test(trimmed)) {
         const items = [];
         while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
@@ -579,11 +695,13 @@ const GEMINI_MODELS = [
         out.push('<ul>' + items.map(x => `<li>${x}</li>`).join('') + '</ul>');
         continue;
       }
+
       const para = [trimmed];
       i++;
       while (i < lines.length && lines[i].trim() &&
              !/^#{1,3}\s/.test(lines[i].trim()) &&
-             !/^\s*[-*]\s+/.test(lines[i])) {
+             !/^\s*[-*]\s+/.test(lines[i]) &&
+             !lines[i].trim().startsWith('|')) {
         para.push(lines[i].trim());
         i++;
       }
@@ -600,7 +718,8 @@ const GEMINI_MODELS = [
     explainQuestion,
     renderMarkdown,
     friendlyError,
-    attachPanel
+    attachPanel,
+    verifyAnswer
   };
 
 
