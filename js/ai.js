@@ -362,49 +362,40 @@ const GEMINI_MODELS = [
 
   async function generateWithFallback(prompt) {
     const geminiKey = getApiKey();
-    if (!geminiKey) throw { kind: 'no_key' };
+    const providers = [];
+
+    // 1. Add Gemini only if the user has a key
+    if (geminiKey) {
+      providers.push({
+        name: 'gemini',
+        models: GEMINI_MODELS,
+        caller: (m, p) => callGemini(m, p, geminiKey)
+      });
+    }
+
+    // 2. Add all the keyless fallbacks
+    providers.push(
+      { name: 'uncloseai', models: UNCLOSE_MODELS, caller: callUncloseAI },
+      { name: 'kilo', models: KILO_MODELS, caller: callKilo },
+      { name: 'keylessai', models: KEYLESSAI_MODELS, caller: callKeylessAI },
+      { name: 'pollinations', models: ['openai'], caller: callPollinations }
+    );
+
+    // 3. SHUFFLE the order randomly for every single request
+    const shuffled = Utils.shuffle(providers);
 
     let lastErr = null;
 
-    /* 1. Gemini */
-    try {
-      return await tryProvider('gemini', GEMINI_MODELS,
-        (m, p) => callGemini(m, p, geminiKey), prompt);
-    } catch (e) {
-      lastErr = e;
-      if (e.kind === 'bad_key') throw e;
-    }
-
-    /* 2. uncloseai */
-    try {
-      return await tryProvider('uncloseai', UNCLOSE_MODELS,
-        (m, p) => callUncloseAI(m, p), prompt);
-    } catch (e) {
-      lastErr = e;
-    }
-
-    /* 3. Kilo Gateway */
-    try {
-      return await tryProvider('kilo', KILO_MODELS,
-        (m, p) => callKilo(m, p), prompt);
-    } catch (e) {
-      lastErr = e;
-    }
-
-    /* 4. KeylessAI */
-    try {
-      return await tryProvider('keylessai', KEYLESSAI_MODELS,
-        (m, p) => callKeylessAI(m, p), prompt);
-    } catch (e) {
-      lastErr = e;
-    }
-
-    /* 5. Pollinations */
-    try {
-      return await tryProvider('pollinations', ['openai'],
-        (m, p) => callPollinations(m, p), prompt);
-    } catch (e) {
-      lastErr = e;
+    // 4. Try them in the random order
+    for (const p of shuffled) {
+      try {
+        return await tryProvider(p.name, p.models, p.caller, prompt);
+      } catch (e) {
+        lastErr = e;
+        // If the API key is fundamentally broken, stop and throw immediately
+        if (e.kind === 'bad_key') throw e;
+        // Otherwise, loop continues to the next provider in the shuffled list
+      }
     }
 
     throw { kind: 'all_busy' };
@@ -534,6 +525,7 @@ const GEMINI_MODELS = [
     const copy  = container.querySelector('[data-ai-action="copy"]');
     const body  = container.querySelector('[data-ai-body]');
 
+    
     const verify = container.querySelector('[data-ai-action="verify"]');
     if (verify) {
       verify.addEventListener('click', async () => {
@@ -543,21 +535,52 @@ const GEMINI_MODELS = [
         
         try {
           const res = await verifyAnswer(q);
+          
+          // Build the detailed report HTML
+          let reportHtml = `<div class="ai-verify-report">`;
+          
           if (res.isIncorrect) {
-            // Insert warning at the top of the body
-            const body = container.querySelector('[data-ai-body]');
-            const warn = document.createElement('div');
-            warn.className = 'ai-verify-warning';
-            warn.innerHTML = `
-              <div class="ai-verify-title">⚠️ Wait! 3+ AI models flagged this answer.</div>
-              <div class="ai-verify-text">They suggest: <strong>${escapeHtml(res.correction)}</strong></div>
-              <div class="ai-verify-sub">The official answer provided in the question bank may be incorrect. Please double-check with your textbook.</div>
-            `;
-            body.insertBefore(warn, body.firstChild);
-            verify.innerHTML = '⚠️ Flagged';
+            reportHtml += `
+              <div class="ai-verify-header ai-verify-bad">
+                ⚠️ Warning: ${res.accuracy}% of AIs flagged this answer
+              </div>
+              <div class="ai-verify-text" style="margin-bottom: 0.5rem;">
+                Suggested correction: <strong>${escapeHtml(res.correction)}</strong>
+              </div>`;
+          } else if (res.validCount > 0) {
+            reportHtml += `
+              <div class="ai-verify-header ai-verify-good">
+                ✅ Verified: ${100 - res.accuracy}% of AIs confirmed this answer
+              </div>`;
           } else {
-            verify.innerHTML = '✅ Verified';
+            reportHtml += `
+              <div class="ai-verify-header" style="color: var(--text-muted);">
+                ❌ Verification failed: All AI providers are busy.
+              </div>`;
           }
+
+          // Add the breakdown list
+          reportHtml += `<div class="ai-verify-list">`;
+          res.breakdown.forEach(b => {
+            const icon = b.status === 'correct' ? '✅' : (b.status === 'incorrect' ? '❌' : '⏳');
+            const color = b.status === 'correct' ? 'var(--correct)' : (b.status === 'incorrect' ? 'var(--wrong)' : 'var(--text-muted)');
+            reportHtml += `
+              <div class="ai-verify-item">
+                <span style="color: ${color};">${icon} <strong>${b.name}</strong></span>
+                <span class="ai-verify-msg">${escapeHtml(b.message)}</span>
+              </div>`;
+          });
+          reportHtml += `</div></div>`;
+
+          // Insert report at the top of the AI panel body
+          const body = container.querySelector('[data-ai-body]');
+          // Remove old report if it exists
+          const oldReport = body.querySelector('.ai-verify-report');
+          if (oldReport) oldReport.remove();
+          
+          body.insertAdjacentHTML('afterbegin', reportHtml);
+          verify.innerHTML = res.isIncorrect ? '⚠️ Flagged' : '✅ Verified';
+          
         } catch (e) {
           verify.innerHTML = '❌ Error';
         }
@@ -674,44 +697,48 @@ If the official answer is CORRECT, reply EXACTLY with: "CORRECT"
 If the official answer is INCORRECT, reply EXACTLY with: "INCORRECT: [Correct Letter] - [1 sentence reason]"
 Do not include any other text.`;
 
-    // Run 5 parallel checks across all available providers
+    // Define the 5 checks with their names
     const checks = [
-      tryProvider('gemini', ['gemini-3.8-lite'], (m, p) => callGemini(m, p, getApiKey()), prompt),
-      tryProvider('uncloseai', UNCLOSE_MODELS, (m, p) => callUncloseAI(m, p), prompt),
-      tryProvider('kilo', KILO_MODELS, (m, p) => callKilo(m, p), prompt),
-      tryProvider('keylessai', KEYLESSAI_MODELS, (m, p) => callKeylessAI(m, p), prompt),
-      tryProvider('pollinations', ['openai'], (m, p) => callPollinations(m, p), prompt)
+      { name: 'Gemini', p: tryProvider('gemini', ['gemini-3.8-flash'], (m, p) => callGemini(m, p, getApiKey()), prompt) },
+      { name: 'uncloseai', p: tryProvider('uncloseai', UNCLOSE_MODELS, (m, p) => callUncloseAI(m, p), prompt) },
+      { name: 'Kilo', p: tryProvider('kilo', KILO_MODELS, (m, p) => callKilo(m, p), prompt) },
+      { name: 'KeylessAI', p: tryProvider('keylessai', KEYLESSAI_MODELS, (m, p) => callKeylessAI(m, p), prompt) },
+      { name: 'Pollinations', p: tryProvider('pollinations', ['openai'], (m, p) => callPollinations(m, p), prompt) }
     ];
 
-    // Use Promise.allSettled so if one provider is down, the others still count
-    const results = await Promise.allSettled(checks);
+    // Run in parallel
+    const results = await Promise.allSettled(checks.map(c => c.p));
     
     let incorrectCount = 0;
-    let validResponses = 0;
+    let validCount = 0;
     let bestCorrection = null;
+    const breakdown = [];
 
-    results.forEach(res => {
-      // Only count responses that actually succeeded
+    results.forEach((res, index) => {
+      const providerName = checks[index].name;
+      
       if (res.status === 'fulfilled' && res.value.text) {
-        validResponses++;
+        validCount++;
         const text = res.value.text.trim();
         
         if (text.startsWith('INCORRECT')) {
           incorrectCount++;
-          if (!bestCorrection) {
-            bestCorrection = text.replace('INCORRECT:', '').trim();
-          }
+          const reason = text.replace('INCORRECT:', '').trim();
+          if (!bestCorrection) bestCorrection = reason;
+          breakdown.push({ name: providerName, status: 'incorrect', message: reason });
+        } else {
+          breakdown.push({ name: providerName, status: 'correct', message: 'Confirmed correct' });
         }
+      } else {
+        breakdown.push({ name: providerName, status: 'failed', message: 'No response / Busy' });
       }
     });
 
-    // If at least 3 AIs responded, and the majority (3+) say it's wrong
-    // (e.g., if 4 respond and 3 say wrong, it warns. If 2 respond and 1 says wrong, it doesn't warn.)
-    if (incorrectCount >= 3) {
-      return { isIncorrect: true, correction: bestCorrection };
-    }
-    
-    return { isIncorrect: false };
+    // Calculate majority (3 out of 5)
+    const isIncorrect = incorrectCount >= 3;
+    const accuracy = validCount > 0 ? Math.round((incorrectCount / validCount) * 100) : 0;
+
+    return { isIncorrect, correction: bestCorrection, breakdown, accuracy, validCount };
   }
 
 
