@@ -24,6 +24,15 @@ const GEMINI_MODELS = [
   /* ---- Pollinations (fallback #2 — no key needed, 1 req/15s) ---- */
   const POLLINATIONS_BASE = 'https://text.pollinations.ai';
 
+  /* ---- Kilo Gateway (fallback #3 — no key needed) ---- */
+  const KILO_BASE   = 'https://api.kilo.ai/api/gateway';
+  const KILO_MODELS = ['kilo-auto/free', 'nvidia/nemotron-3-ultra-550b-a55b:free'];
+
+  /* ---- KeylessAI (fallback #4 — no key needed) ---- */
+  const KEYLESSAI_BASE   = 'https://keylessai.thryx.workers.dev/v1';
+  const KEYLESSAI_MODELS = ['openai-fast'];
+
+
   const REQUEST_TIMEOUT_MS = 45000;
   const RETRY_DELAY_MS = 800;
 
@@ -282,6 +291,57 @@ const GEMINI_MODELS = [
     return text.trim();
   }
 
+  /* ---------- Kilo Gateway (OpenAI-compatible, no key) ---------- */
+  async function callKilo(model, prompt, _apiKey) {
+    const url = `${KILO_BASE}/chat/completions`;
+    const res = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+        max_tokens: 1500
+      })
+    });
+    let data;
+    try { data = await res.json(); } catch { throw { kind: 'parse' }; }
+    if (!res.ok) {
+      const msg = data?.error?.message || '';
+      throw { kind: classifyError(res.status, msg), status: res.status, message: msg };
+    }
+    const text = data?.choices?.[0]?.message?.content;
+    if (!text || typeof text !== 'string') throw { kind: 'parse' };
+    return text.trim();
+  }
+
+  /* ---------- KeylessAI (OpenAI-compatible, no key) ---------- */
+  async function callKeylessAI(model, prompt, _apiKey) {
+    const url = `${KEYLESSAI_BASE}/chat/completions`;
+    const res = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer not-needed'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+        max_tokens: 1500
+      })
+    });
+    let data;
+    try { data = await res.json(); } catch { throw { kind: 'parse' }; }
+    if (!res.ok) {
+      const msg = data?.error?.message || '';
+      throw { kind: classifyError(res.status, msg), status: res.status, message: msg };
+    }
+    const text = data?.choices?.[0]?.message?.content;
+    if (!text || typeof text !== 'string') throw { kind: 'parse' };
+    return text.trim();
+  }
+
   /* ============ PROVIDER CHAIN ============ */
   async function tryProvider(providerName, models, caller, prompt) {
     let lastErr = null;
@@ -305,7 +365,6 @@ const GEMINI_MODELS = [
     if (!geminiKey) throw { kind: 'no_key' };
 
     let lastErr = null;
-    const errors = [];
 
     /* 1. Gemini */
     try {
@@ -313,32 +372,42 @@ const GEMINI_MODELS = [
         (m, p) => callGemini(m, p, geminiKey), prompt);
     } catch (e) {
       lastErr = e;
-      errors.push({ provider: 'gemini', kind: e.kind });
-      /* Bad key = real problem, don't try fallbacks */
       if (e.kind === 'bad_key') throw e;
-      /* Timeout / network → try fallbacks */
     }
 
-    /* 2. uncloseai (free, no key) */
+    /* 2. uncloseai */
     try {
       return await tryProvider('uncloseai', UNCLOSE_MODELS,
         (m, p) => callUncloseAI(m, p), prompt);
     } catch (e) {
       lastErr = e;
-      errors.push({ provider: 'uncloseai', kind: e.kind });
     }
 
-    /* 3. Pollinations (free, no key) */
+    /* 3. Kilo Gateway */
+    try {
+      return await tryProvider('kilo', KILO_MODELS,
+        (m, p) => callKilo(m, p), prompt);
+    } catch (e) {
+      lastErr = e;
+    }
+
+    /* 4. KeylessAI */
+    try {
+      return await tryProvider('keylessai', KEYLESSAI_MODELS,
+        (m, p) => callKeylessAI(m, p), prompt);
+    } catch (e) {
+      lastErr = e;
+    }
+
+    /* 5. Pollinations */
     try {
       return await tryProvider('pollinations', ['openai'],
         (m, p) => callPollinations(m, p), prompt);
     } catch (e) {
       lastErr = e;
-      errors.push({ provider: 'pollinations', kind: e.kind });
     }
 
-    /* All three failed */
-    throw { kind: 'all_busy', detail: errors };
+    throw { kind: 'all_busy' };
   }
 
   /* ============ PUBLIC ============ */
@@ -390,6 +459,8 @@ const GEMINI_MODELS = [
   function providerLabel(p) {
     if (p === 'gemini')      return 'Gemini';
     if (p === 'uncloseai')   return 'uncloseai';
+    if (p === 'kilo')        return 'Kilo';
+    if (p === 'keylessai')   return 'KeylessAI';
     if (p === 'pollinations') return 'Pollinations';
     return p || 'AI';
   }
@@ -603,35 +674,43 @@ If the official answer is CORRECT, reply EXACTLY with: "CORRECT"
 If the official answer is INCORRECT, reply EXACTLY with: "INCORRECT: [Correct Letter] - [1 sentence reason]"
 Do not include any other text.`;
 
-    // Run 5 checks across different providers
+    // Run 5 parallel checks across all available providers
     const checks = [
-      tryProvider('gemini', GEMINI_MODELS, (m, p) => callGemini(m, p, getApiKey()), prompt),
+      tryProvider('gemini', ['gemini-3.8-lite'], (m, p) => callGemini(m, p, getApiKey()), prompt),
       tryProvider('uncloseai', UNCLOSE_MODELS, (m, p) => callUncloseAI(m, p), prompt),
-      tryProvider('gemini', ['gemini-3.8-flash'], (m, p) => callGemini(m, p, getApiKey()), prompt),
-      tryProvider('uncloseai', UNCLOSE_MODELS, (m, p) => callUncloseAI(m, p), prompt),
+      tryProvider('kilo', KILO_MODELS, (m, p) => callKilo(m, p), prompt),
+      tryProvider('keylessai', KEYLESSAI_MODELS, (m, p) => callKeylessAI(m, p), prompt),
       tryProvider('pollinations', ['openai'], (m, p) => callPollinations(m, p), prompt)
     ];
 
-    // Use Promise.allSettled so one failure doesn't break everything
+    // Use Promise.allSettled so if one provider is down, the others still count
     const results = await Promise.allSettled(checks);
     
     let incorrectCount = 0;
+    let validResponses = 0;
     let bestCorrection = null;
 
     results.forEach(res => {
+      // Only count responses that actually succeeded
       if (res.status === 'fulfilled' && res.value.text) {
+        validResponses++;
         const text = res.value.text.trim();
+        
         if (text.startsWith('INCORRECT')) {
           incorrectCount++;
-          if (!bestCorrection) bestCorrection = text.replace('INCORRECT:', '').trim();
+          if (!bestCorrection) {
+            bestCorrection = text.replace('INCORRECT:', '').trim();
+          }
         }
       }
     });
 
-    // If 3 or more models agree the answer is wrong
+    // If at least 3 AIs responded, and the majority (3+) say it's wrong
+    // (e.g., if 4 respond and 3 say wrong, it warns. If 2 respond and 1 says wrong, it doesn't warn.)
     if (incorrectCount >= 3) {
       return { isIncorrect: true, correction: bestCorrection };
     }
+    
     return { isIncorrect: false };
   }
 

@@ -347,8 +347,8 @@ const Settings = (() => {
             <div class="setting-label">
               <strong>Fallback providers</strong>
               <small class="text-muted">
-                ✅ <strong>uncloseai</strong> (free, no key needed) — used automatically if Gemini is busy.<br>
-                ✅ <strong>Pollinations</strong> (free, no key needed) — last resort if both fail.
+                ✅ <strong>uncloseai</strong>, <strong>Kilo</strong>, <strong>KeylessAI</strong>, and <strong>Pollinations</strong>.<br>
+                (All free, no key needed — tried automatically in order if Gemini is busy).
               </small>
             </div>
             <div class="setting-control">
