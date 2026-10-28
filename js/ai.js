@@ -536,30 +536,33 @@ const GEMINI_MODELS = [
         try {
           const res = await verifyAnswer(q);
           
-          // Build the detailed report HTML
           let reportHtml = `<div class="ai-verify-report">`;
           
-          if (res.isIncorrect) {
+          if (res.inconclusive) {
+            reportHtml += `
+              <div class="ai-verify-header" style="color: var(--text-muted);">
+                ⚠️ Inconclusive: Not enough AI providers responded.
+              </div>
+              <div class="ai-verify-text" style="font-size: 0.85rem;">
+                Only ${res.validCount} out of 5 AIs returned a valid answer. Please try again later.
+              </div>`;
+          } 
+          else if (res.isIncorrect) {
             reportHtml += `
               <div class="ai-verify-header ai-verify-bad">
-                ⚠️ Warning: ${res.accuracy}% of AIs flagged this answer
+                🚨 Warning: ${res.accuracy}% of AIs flagged this answer
               </div>
-              <div class="ai-verify-text" style="margin-bottom: 0.5rem;">
+              <div class="ai-verify-text">
                 Suggested correction: <strong>${escapeHtml(res.correction)}</strong>
               </div>`;
-          } else if (res.validCount > 0) {
+          } 
+          else {
             reportHtml += `
               <div class="ai-verify-header ai-verify-good">
                 ✅ Verified: ${100 - res.accuracy}% of AIs confirmed this answer
               </div>`;
-          } else {
-            reportHtml += `
-              <div class="ai-verify-header" style="color: var(--text-muted);">
-                ❌ Verification failed: All AI providers are busy.
-              </div>`;
           }
 
-          // Add the breakdown list
           reportHtml += `<div class="ai-verify-list">`;
           res.breakdown.forEach(b => {
             const icon = b.status === 'correct' ? '✅' : (b.status === 'incorrect' ? '❌' : '⏳');
@@ -572,14 +575,12 @@ const GEMINI_MODELS = [
           });
           reportHtml += `</div></div>`;
 
-          // Insert report at the top of the AI panel body
           const body = container.querySelector('[data-ai-body]');
-          // Remove old report if it exists
           const oldReport = body.querySelector('.ai-verify-report');
           if (oldReport) oldReport.remove();
           
           body.insertAdjacentHTML('afterbegin', reportHtml);
-          verify.innerHTML = res.isIncorrect ? '⚠️ Flagged' : '✅ Verified';
+          verify.innerHTML = res.inconclusive ? '⚠️ Inconclusive' : (res.isIncorrect ? '❌ Flagged' : '✅ Verified');
           
         } catch (e) {
           verify.innerHTML = '❌ Error';
@@ -684,6 +685,7 @@ const GEMINI_MODELS = [
   async function verifyAnswer(q) {
     const opts = normalizeOptions(q.options);
     const answer = normalizeAnswer(q.answer, q.options);
+    const answerLetter = String.fromCharCode(65 + opts.indexOf(answer)); // e.g., "C"
     
     const prompt = `You are an expert CSE professor. Review this question and its official answer.
     
@@ -697,7 +699,6 @@ If the official answer is CORRECT, reply EXACTLY with: "CORRECT"
 If the official answer is INCORRECT, reply EXACTLY with: "INCORRECT: [Correct Letter] - [1 sentence reason]"
 Do not include any other text.`;
 
-    // Define the 5 checks with their names
     const checks = [
       { name: 'Gemini', p: tryProvider('gemini', ['gemini-3.8-flash'], (m, p) => callGemini(m, p, getApiKey()), prompt) },
       { name: 'uncloseai', p: tryProvider('uncloseai', UNCLOSE_MODELS, (m, p) => callUncloseAI(m, p), prompt) },
@@ -706,10 +707,10 @@ Do not include any other text.`;
       { name: 'Pollinations', p: tryProvider('pollinations', ['openai'], (m, p) => callPollinations(m, p), prompt) }
     ];
 
-    // Run in parallel
     const results = await Promise.allSettled(checks.map(c => c.p));
     
     let incorrectCount = 0;
+    let correctCount = 0;
     let validCount = 0;
     let bestCorrection = null;
     const breakdown = [];
@@ -718,27 +719,49 @@ Do not include any other text.`;
       const providerName = checks[index].name;
       
       if (res.status === 'fulfilled' && res.value.text) {
-        validCount++;
         const text = res.value.text.trim();
+        const upperText = text.toUpperCase();
         
-        if (text.startsWith('INCORRECT')) {
+        // 1. Check for explicit INCORRECT
+        if (upperText.includes('INCORRECT')) {
           incorrectCount++;
-          const reason = text.replace('INCORRECT:', '').trim();
+          const reason = text.substring(text.toUpperCase().indexOf('INCORRECT') + 9).replace(/^:\s*/, '').trim();
           if (!bestCorrection) bestCorrection = reason;
           breakdown.push({ name: providerName, status: 'incorrect', message: reason });
-        } else {
+          validCount++;
+        } 
+        // 2. Check for explicit CORRECT or just the correct letter (e.g., "C")
+        else if (upperText.includes('CORRECT') || text === answerLetter || text === `"${answerLetter}"`) {
+          correctCount++;
           breakdown.push({ name: providerName, status: 'correct', message: 'Confirmed correct' });
+          validCount++;
+        } 
+        // 3. Gibberish / Unexpected format
+        else {
+          breakdown.push({ name: providerName, status: 'failed', message: 'Invalid response format' });
         }
       } else {
         breakdown.push({ name: providerName, status: 'failed', message: 'No response / Busy' });
       }
     });
 
-    // Calculate majority (3 out of 5)
-    const isIncorrect = incorrectCount >= 3;
-    const accuracy = validCount > 0 ? Math.round((incorrectCount / validCount) * 100) : 0;
+    // We need at least 2 valid responses to make a fair judgement
+    if (validCount < 2) {
+      return { 
+        isIncorrect: false, 
+        correction: null, 
+        breakdown, 
+        accuracy: 0, 
+        validCount,
+        inconclusive: true 
+      };
+    }
 
-    return { isIncorrect, correction: bestCorrection, breakdown, accuracy, validCount };
+    // Calculate majority (e.g., if 3 out of 4 say incorrect, it's flagged)
+    const isIncorrect = incorrectCount > correctCount;
+    const accuracy = Math.round((incorrectCount / validCount) * 100);
+
+    return { isIncorrect, correction: bestCorrection, breakdown, accuracy, validCount, inconclusive: false };
   }
 
 
@@ -754,9 +777,40 @@ Do not include any other text.`;
     const lines = safe.split(/\r?\n/);
     const out = [];
     let i = 0;
-    const inline = (t) =>
-      t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-       .replace(/`([^`]+?)`/g, '<code>$1</code>');
+    const inline = (t) => {
+      let out = t;
+      
+      // 1. Clean up LaTeX math delimiters (e.g., \(s\) -> s)
+      out = out.replace(/\\\(/g, '').replace(/\\\)/g, '');
+      out = out.replace(/\\\[/g, '<br>').replace(/\\\]/g, '');
+      
+      // 2. Convert powers (e.g., s^2 -> s<sup>2</sup>)
+      out = out.replace(/\^\{([^}]+)\}/g, '<sup>$1</sup>');
+      out = out.replace(/\^([0-9a-zA-Z]+)/g, '<sup>$1</sup>');
+      
+      // 3. Convert subscripts (e.g., a_1 -> a<sub>1</sub>)
+      out = out.replace(/_\{([^}]+)\}/g, '<sub>$1</sub>');
+      out = out.replace(/_([0-9a-zA-Z]+)/g, '<sub>$1</sub>');
+
+      // 4. Replace common LaTeX math symbols
+      out = out.replace(/\\times/g, ' × ');
+      out = out.replace(/\\cdot/g, ' · ');
+      out = out.replace(/\\div/g, ' ÷ ');
+      out = out.replace(/\\pm/g, ' ± ');
+      out = out.replace(/\\pi/g, 'π');
+      out = out.replace(/\\alpha/g, 'α');
+      out = out.replace(/\\beta/g, 'β');
+      out = out.replace(/\\theta/g, 'θ');
+      
+      // 5. Handle fractions (e.g., \frac{a}{b} -> (a) / (b))
+      out = out.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1) / ($2)');
+      
+      // 6. Standard Markdown (Bold and Code)
+      out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      out = out.replace(/`([^`]+?)`/g, '<code>$1</code>');
+      
+      return out;
+    };
 
     while (i < lines.length) {
       const trimmed = lines[i].trim();

@@ -2965,3 +2965,16 @@ body {
   font-size: 0.8rem;
   flex: 1;
 }
+
+/* Fix AI Math Superscripts and Subscripts */
+.ai-panel-body sup, 
+.ai-panel-body sub {
+  font-size: 0.75em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+.ai-panel-body sup { top: -0.5em; }
+.ai-panel-body sub { bottom: -0.25em; }
+
+
