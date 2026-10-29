@@ -296,7 +296,10 @@ const GEMINI_MODELS = [
     const url = `${KILO_BASE}/chat/completions`;
     const res = await fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer not-needed' // <--- Added this
+      },
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: prompt }],
@@ -707,7 +710,14 @@ Do not include any other text.`;
       { name: 'Pollinations', p: tryProvider('pollinations', ['openai'], (m, p) => callPollinations(m, p), prompt) }
     ];
 
-    const results = await Promise.allSettled(checks.map(c => c.p));
+    // Stagger the requests so free servers don't think we are spamming them
+    const delay = (ms) => new Promise(r => setTimeout(r, ms));
+    
+    const staggeredChecks = checks.map((c, i) => 
+      delay(i * 800).then(() => c.p)
+    );
+
+    const results = await Promise.allSettled(staggeredChecks);
     
     let incorrectCount = 0;
     let correctCount = 0;
